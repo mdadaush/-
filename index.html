@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Умный анализ вашего холодильника</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css">
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Умный анализ вашего холодильника</h1>
+            <p>Анализ содержимого и персональные рецепты</p>
+        </div>
+
+        <div class="main-content">
+            <div class="card upload-section">
+                <h2>Загрузите фото</h2>
+                <div class="upload-zone" id="uploadZone">
+                    <div class="upload-icon"></div>
+                    <p>Нажмите или перетащите фото сюда</p>
+                    <input type="file" id="fileInput" accept="image/*" style="display: none;">
+                </div>
+                <img id="previewImage" class="preview-image hidden" alt="Предпросмотр">
+                <button class="btn" id="analyzeBtn" disabled>Анализировать</button>
+                
+                <div class="loading" id="loadingIndicator">
+                    <div class="spinner"></div>
+                    <p>Анализируем...</p>
+                </div>
+            </div>
+
+            <div class="card allergen-section">
+                <h3>Ваши аллергены</h3>
+                <p>Отметьте, чтобы рецепты были безопасны:</p>
+                <div class="allergen-grid">
+                    <div class="allergen-item">
+                        <input type="checkbox" id="gluten" value="глютен">
+                        <label for="gluten">Глютен</label>
+                    </div>
+                    <div class="allergen-item">
+                        <input type="checkbox" id="milk" value="молоко">
+                        <label for="milk">Молоко</label>
+                    </div>
+                    <div class="allergen-item">
+                        <input type="checkbox" id="eggs" value="яйца">
+                        <label for="eggs">Яйца</label>
+                    </div>
+                    <div class="allergen-item">
+                        <input type="checkbox" id="nuts" value="орехи">
+                        <label for="nuts">Орехи</label>
+                    </div>
+                    <div class="allergen-item">
+                        <input type="checkbox" id="seafood" value="морепродукты">
+                        <label for="seafood">Морепродукты</label>
+                    </div>
+                    <div class="allergen-item">
+                        <input type="checkbox" id="soy" value="соя">
+                        <label for="soy">Соя</label>
+                    </div>
+                    <div class="allergen-item">
+                        <input type="checkbox" id="peanuts" value="арахис">
+                        <label for="peanuts">Арахис</label>
+                    </div>
+                    <div class="allergen-item">
+                        <input type="checkbox" id="fish" value="рыба">
+                        <label for="fish">Рыба</label>
+                    </div>
+                    <div class="allergen-item">
+                        <input type="checkbox" id="celery" value="сельдерей">
+                        <label for="celery">Сельдерей</label>
+                    </div>
+                    <div class="allergen-item">
+                        <input type="checkbox" id="mustard" value="горчица">
+                        <label for="mustard">Горчица</label>
+                    </div>
+                    <div class="allergen-item">
+                        <input type="checkbox" id="sesame" value="кунжут">
+                        <label for="sesame">Кунжут</label>
+                    </div>
+                    <div class="allergen-item">
+                        <input type="checkbox" id="sulfites" value="сульфиты">
+                        <label for="sulfites">Сульфиты</label>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card results-section hidden" id="resultsSection">
+            <h2>Найдено в холодильнике</h2>
+            <div id="allergenAlerts"></div>
+            <div class="products-grid" id="productsGrid"></div>
+            
+            <div class="nutrition-info">
+                <h3>Питательная ценность</h3>
+                <div class="nutrition-grid" id="nutritionGrid"></div>
+            </div>
+
+            <div class="recipes-section">
+                <h2>Рецепты на день</h2>
+                <div id="recipesContainer"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        class FridgeApp {
+            constructor() {
+                this.allergens = new Set();
+                this.products = [];
+                this.nutrition = [];
+                this.recipes = [];
+                this.photo = null;
+                this.init();
+            }
+
+            init() {
+                this.setupEvents();
+                this.loadAllergens();
+            }
+
+            setupEvents() {
+                const uploadZone = document.getElementById('uploadZone');
+                const fileInput = document.getElementById('fileInput');
+                const analyzeBtn = document.getElementById('analyzeBtn');
+
+                uploadZone.addEventListener('click', () => fileInput.click());
+                uploadZone.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                    uploadZone.classList.add('drag-over');
+                });
+                uploadZone.addEventListener('dragleave', () => {
+                    uploadZone.classList.remove('drag-over');
+                });
+                uploadZone.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    uploadZone.classList.remove('drag-over');
+                    const files = e.dataTransfer.files;
+                    if (files.length > 0) {
+                        this.handleFile(files[0]);
+                    }
+                });
+
+                fileInput.addEventListener('change', (e) => {
+                    if (e.target.files.length > 0) {
+                        this.handleFile(e.target.files[0]);
+                    }
+                });
+
+                analyzeBtn.addEventListener('click', () => this.runAnalysis());
+
+                document.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
+                    checkbox.addEventListener('change', (e) => {
+                        if (e.target.checked) {
+                            this.allergens.add(e.target.value);
+                        } else {
+                            this.allergens.delete(e.target.value);
+                        }
+                        this.saveAllergens();
+                        if (this.products.length > 0) {
+                            this.showResults();
+                        }
+                    });
+                });
+            }
+
+            handleFile(file) {
+                if (!file.type.startsWith('image/')) {
+                    this.showAlert('Выберите изображение.', 'danger');
+                    return;
+                }
+
+                this.photo = file;
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const previewImage = document.getElementById('previewImage');
+                    previewImage.src = e.target.result;
+                    previewImage.classList.remove('hidden');
+                    document.getElementById('analyzeBtn').disabled = false;
+                };
+                reader.readAsDataURL(file);
+            }
+
+            async runAnalysis() {
+                const loading = document.getElementById('loadingIndicator');
+                const analyzeBtn = document.getElementById('analyzeBtn');
+                
+                loading.style.display = 'block';
+                analyzeBtn.disabled = true;
+                this.showAlert('');
+
+                try {
+                    if (!this.photo) {
+                        this.showAlert('Изображение не выбрано.', 'danger');
+                        return;
+                    }
+
+                    const formData = new FormData();
+                    formData.append('file', this.photo);
+                    console.log('Отправляем аллергены:', Array.from(this.allergens));
+                    formData.append('selected_allergens', JSON.stringify(Array.from(this.allergens)));
+
+                    const backendUrl = "http://127.0.0.1:8000/analyze-fridge/";
+                    const response = await fetch(backendUrl, {
+                        method: 'POST',
+                        body: formData
+                    });
+
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(errorData.detail || `Ошибка! Статус: ${response.status}`);
+                    }
+
+                    const result = await response.json();
+                    
+                    this.products = result.products || [];
+                    this.nutrition = result.nutrition_info || [];
+                    this.recipes = result.recipes || [];
+
+                    console.log('Получены продукты:', this.products);
+                    console.log('Получена информация о питании:', this.nutrition);
+                    console.log('Получены рецепты:', this.recipes);
+
+                    if (this.products.length === 0) {
+                        this.showAlert('Продукты не распознаны. Попробуйте другое фото.', 'warning');
+                    }
+
+                } catch (error) {
+                    console.error('Ошибка анализа:', error);
+                    this.showAlert(`Произошла ошибка: ${error.message}. Пожалуйста, попробуйте еще раз.`, 'danger');
+                    this.products = [];
+                    this.nutrition = [];
+                    this.recipes = [];
+                } finally {
+                    loading.style.display = 'none';
+                    analyzeBtn.disabled = false;
+                    this.showResults();
+                }
+            }
+
+            showResults() {
+                const resultsSection = document.getElementById('resultsSection');
+                if (this.products.length > 0 || this.nutrition.length > 0 || this.recipes.length > 0) {
+                    resultsSection.classList.remove('hidden');
+                } else {
+                    resultsSection.classList.add('hidden');
+                    return;
+                }
+
+                this.displayProducts();
+                this.displayNutrition();
+                this.displayRecipes();
+                this.updateAllergenAlerts();
+            }
+
+            displayProducts() {
+                const productsGrid = document.getElementById('productsGrid');
+                productsGrid.innerHTML = '';
+
+                if (this.products.length === 0) {
+                    productsGrid.innerHTML = '<p class="text-gray-500">Продукты не найдены.</p>';
+                    return;
+                }
+
+                this.products.forEach(product => {
+                    const productDiv = document.createElement('div');
+                    productDiv.className = 'product-item rounded-lg p-4 text-center shadow-sm';
+                    
+                    const hasAllergen = (product.allergens || []).some(allergen => {
+                        console.log(`Проверяем "${product.name}": его аллергены: ${product.allergens}, ваши аллергены: ${Array.from(this.allergens)}. Совпадение? ${this.allergens.has(allergen)}`);
+                        return this.allergens.has(allergen);
+                    });
+                    
+                    if (hasAllergen) {
+                        productDiv.classList.add('allergen-warning');
+                    }
+
+                    productDiv.innerHTML = `
+                        <div class="product-name text-lg font-bold">${product.name}</div>
+                        ${hasAllergen ? '<div class="text-red-600 text-xs mt-1">Аллерген</div>' : ''}
+                    `;
+                    
+                    productsGrid.appendChild(productDiv);
+                });
+            }
+
+            displayNutrition() {
+                const nutritionGrid = document.getElementById('nutritionGrid');
+                nutritionGrid.innerHTML = '';
+
+                if (!this.nutrition || this.nutrition.length === 0) {
+                    nutritionGrid.innerHTML = '<p class="text-gray-500">Нет данных о питании.</p>';
+                    return;
+                }
+
+                nutritionGrid.innerHTML = this.nutrition.map(item => `
+                    <div class="nutrition-item rounded-lg p-4 text-center shadow-sm">
+                        <div class="nutrition-value text-3xl font-bold text-green-600">${item.value}</div>
+                        <div class="nutrition-label text-sm text-gray-700">${item.label}</div>
+                        <div class="text-xs text-green-500 mt-1">${item.percentage}% от нормы</div>
+                    </div>
+                `).join('');
+            }
+
+            displayRecipes() {
+                const recipesContainer = document.getElementById('recipesContainer');
+                recipesContainer.innerHTML = '';
+
+                if (!this.recipes || this.recipes.length === 0) {
+                    recipesContainer.innerHTML = '<p class="text-gray-500">Рецепты не найдены, учитывая ваши продукты и аллергены.</p>';
+                    return;
+                }
+
+                recipesContainer.innerHTML = this.recipes.map(recipe => `
+                    <div class="recipe-card rounded-lg p-5 mb-5 shadow-md">
+                        <div class="recipe-title text-2xl font-bold mb-1">${recipe.title}</div>
+                        <div class="meal-type text-blue-600 font-semibold mb-3">${recipe.mealType}</div>
+                        <div class="recipe-meta flex flex-wrap gap-2 mb-4">
+                            <span class="bg-gray-200 px-3 py-1 rounded-md text-sm">${recipe.cookTime} мин</span>
+                            <span class="bg-gray-200 px-3 py-1 rounded-md text-sm">${recipe.servings} порций</span>
+                            <span class="bg-gray-200 px-3 py-1 rounded-md text-sm">${recipe.calories} ккал</span>
+                        </div>
+                        <div class="recipe-ingredients text-gray-700 mb-3">
+                            <strong>Ингредиенты:</strong><br>
+                            ${(recipe.ingredients || []).join(', ')}
+                        </div>
+                        <p class="recipe-description-text text-gray-600">${recipe.description}</p>
+                    </div>
+                `).join('');
+            }
+
+            updateAllergenAlerts() {
+                const alertsContainer = document.getElementById('allergenAlerts');
+                alertsContainer.innerHTML = '';
+
+                const problematicProducts = this.products.filter(product =>
+                    (product.allergens || []).some(allergen => this.allergens.has(allergen))
+                );
+                console.log('Продукты с аллергенами:', problematicProducts);
+
+                if (problematicProducts.length > 0) {
+                    const alertDiv = document.createElement('div');
+                    alertDiv.className = 'alert alert-danger rounded-lg p-4 mb-4';
+                    alertDiv.innerHTML = `
+                        <strong>Внимание! Обнаружены аллергены:</strong><br>
+                        ${problematicProducts.map(p => p.name).join(', ')} содержат аллергены.
+                    `;
+                    alertsContainer.appendChild(alertDiv);
+                }
+            }
+
+            saveAllergens() {
+                const settings = Array.from(this.allergens);
+                localStorage.setItem('selectedAllergens', JSON.stringify(settings));
+                console.log('Аллергены сохранены:', settings);
+            }
+
+            loadAllergens() {
+                const savedSettings = localStorage.getItem('selectedAllergens');
+                if (savedSettings) {
+                    this.allergens = new Set(JSON.parse(savedSettings));
+                    document.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
+                        if (this.allergens.has(checkbox.value)) {
+                            checkbox.checked = true;
+                        }
+                    });
+                } else {
+                    this.allergens = new Set();
+                }
+                console.log('Аллергены загружены:', Array.from(this.allergens));
+            }
+
+            showAlert(message, type = 'info') {
+                const alertsContainer = document.getElementById('allergenAlerts');
+                alertsContainer.innerHTML = '';
+                if (message) {
+                    const alertDiv = document.createElement('div');
+                    alertDiv.className = `alert alert-${type} rounded-lg p-4 mb-4`;
+                    alertDiv.innerHTML = message;
+                    alertsContainer.appendChild(alertDiv);
+                }
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            new FridgeApp();
+        });
+    </script>
+</body>
+</html>
